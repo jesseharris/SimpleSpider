@@ -40,10 +40,9 @@ class ImageGetter(threading.Thread):
         path = urllib2.unquote(path)
         # /dir/subdir/file.ext  --> /dir/subdir
         directory, filename = os.path.split(path)
-        os_lock.acquire()
-        if not os.path.exists(self.base_dir + directory):
-            os.makedirs(self.base_dir + directory)
-        os_lock.release()
+        with os_lock:
+            if not os.path.exists(self.base_dir + directory):
+                os.makedirs(self.base_dir + directory)
         # base_dir + /path/file.ext  --> base_dir/path/file.ext
         f = open(self.base_dir + path, 'wb')
         f.write(u.read())
@@ -70,7 +69,6 @@ class PageGetter(threading.Thread):
             time.sleep(self.delay)
 
     def get_page_url(self, page_url):
-        global os_lock
         global image_url_stack
         global page_url_stack
         
@@ -111,48 +109,42 @@ class URLStack(object):
         self.lock = threading.RLock()
     
     def __len__(self):    
-        self.lock.acquire()
-        length = len(self.url_stack)
-        self.lock.release()
-        return length
-    
-    def pop(self):
-        self.lock.acquire()
-        url = None
-        if self.url_stack:
-            url = self.url_stack.pop()
-        self.lock.release()
-        return url
+        with self.lock:
+            length = len(self.url_stack)
+            return length
         
+    def pop(self):
+        with self.lock:
+            url = None
+            if self.url_stack:
+                url = self.url_stack.pop()
+            return url
+            
     # Accepts single item(string)
     def processed(self, item, success):
-        self.lock.acquire()
-        if success:
-            self.processed_urls.append(item)
-        else:
-            self.url_stack.insert(0, item)
-        self.lock.release()
+        with self.lock:
+            if success:
+                self.processed_urls.append(item)
+            else:
+                self.url_stack.insert(0, item)
 
     def has_url(self):
-        self.lock.acquire()
-        has_url = len(self.url_stack) > 0
-        self.lock.release()
-        return has_url
-        
+        with self.lock:
+            has_url = len(self.url_stack) > 0
+            return has_url
+            
     # Accepts single item(string)
     def append_single(self, item):
-        self.lock.acquire()
-        parsed_item = urlparse.urlsplit(item)
-        if item not in self.url_stack and item not in self.processed_urls and parsed_item.netloc.endswith(tuple(self.domains)) and urllib2.unquote(parsed_item.path).startswith(tuple(self.paths)):
-            self.url_stack.append(item)
-        self.lock.release()
+        with self.lock:
+            parsed_item = urlparse.urlsplit(item)
+            if item not in self.url_stack and item not in self.processed_urls and parsed_item.netloc.endswith(tuple(self.domains)) and urllib2.unquote(parsed_item.path).startswith(tuple(self.paths)):
+                self.url_stack.append(item)
 
     # Accepts iterable(list, tuple, ...), do not send string
     def append_multiple(self, items):
-        self.lock.acquire()
-        for item in items:
-            self.append_single(item)
-        self.lock.release()
+        with self.lock:
+            for item in items:
+                self.append_single(item)
     
 def main():
     global image_url_stack
